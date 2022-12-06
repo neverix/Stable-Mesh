@@ -72,7 +72,8 @@ def loop(cfg):
 
     # Get text embedding
     print("Text is %s" % cfg["text_prompt"])
-
+    
+    autocast_device = torch.device(device).type
     stable_cache = {}
     def text_encode(text):
         nonlocal stable_cache
