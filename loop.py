@@ -52,10 +52,10 @@ def loop(cfg):
     torch.cuda.set_device(device)
 
     # Initialize Stable Diffusion
-    stable_pipe = StableDiffusionPipeline.from_pretrained(cfg["perceptor_model"],
+    stable_pipe = StableDiffusionPipeline.from_pretrained(cfg["perceptor_model"], torch_dtype=torch.float16,
                                                           # revision="fp16",
-                                                          torch_dtype=torch.float16,
-                                                          use_auth_token=True)
+#                                                           use_auth_token=True
+                                                         )
     stable_pipe = stable_pipe.to(device)
     stable_pipe.scheduler.set_timesteps(1000)
     del stable_pipe.safety_checker
