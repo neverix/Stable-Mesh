@@ -77,7 +77,7 @@ def loop(cfg):
     stable_cache = {}
     def text_encode(text):
         nonlocal stable_cache
-        with torch.inference_mode(), torch.autocast(device):
+        with torch.inference_mode(), torch.autocast(autocast_device):
             if text in stable_cache:
                 text_embeddings = stable_cache[text]
             else:
@@ -477,12 +477,12 @@ def loop(cfg):
             im.save(os.path.join(cfg["path"], 'epoch_%d.png' % it))
 
         # Convert image to image embeddings
-        with torch.autocast(device):
+        with torch.autocast(autocast_device):
             img_cut = (train_render - clip_mean[None, :, None, None]) / clip_std[None, :, None, None]
             encoded = stable_pipe.vae.encode(img_cut.half()).latent_dist.sample() * 0.18215
 
         # Get loss between text embeds and image embeds
-        with torch.inference_mode(), torch.autocast(device):
+        with torch.inference_mode(), torch.autocast(autocast_device):
             text_embeddings = text_encode(["", cfg["text_prompt"]])  # TODO
             noise = torch.randn_like(encoded)
             ts = stable_pipe.scheduler.timesteps
