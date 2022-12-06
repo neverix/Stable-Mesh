@@ -51,11 +51,18 @@ def loop(cfg):
     device = torch.device("cuda:" + cfg["gpu"])
     torch.cuda.set_device(device)
 
-    # Initialize CLIP model
-    model, _ = clip.load(cfg["clip_model"], device=device)
+    # Initialize Stable Diffusion
+    stable_pipe = StableDiffusionPipeline.from_pretrained(cfg["perceptor_model"],
+                                                          # revision="fp16",
+                                                          torch_dtype=torch.float16,
+                                                          use_auth_token=True)
+    stable_pipe = stable_pipe.to(device)
+    stable_pipe.scheduler.set_timesteps(1000)
+    del stable_pipe.safety_checker
+    stable_pipe.safety_checker = lambda clip_input, images: (images, [False for _ in images])  # haha
 
-    clip_mean = torch.tensor([0.48154660, 0.45782750, 0.40821073], device=device)
-    clip_std  = torch.tensor([0.26862954, 0.26130258, 0.27577711], device=device)
+    clip_mean = torch.tensor([0.5, 0.5, 0.5], device=device)
+    clip_std  = torch.tensor([1.0, 1.0, 1.0], device=device)
 
     # Initialize Video
     video = Video(cfg["path"])
@@ -66,43 +73,19 @@ def loop(cfg):
     # Get text embedding
     print("Text is %s" % cfg["text_prompt"])
 
-    texts_embeds = clip.tokenize([cfg["text_prompt"]]).to(device)
-    with torch.no_grad():
-        texts_embeds = model.encode_text(texts_embeds).detach()
-        texts_embeds = texts_embeds / texts_embeds.norm(dim=1, keepdim=True)
-
-    # Setup Prior model & get image prior (text embed -> image embed)
-    if cfg["prior_path"] is not None:
-
-        state_dict = torch.load(cfg["prior_path"], map_location=device)["model"]
-
-        prior_network = DiffusionPriorNetwork( 
-            dim=cfg["diffusion_prior_network_dim"],
-            depth=cfg["diffusion_prior_network_depth"], 
-            dim_head=cfg["diffusion_prior_network_dim_head"], 
-            heads=cfg["diffusion_prior_network_heads"],
-            normformer=cfg["diffusion_prior_network_normformer"]
-        ).to(device)
-
-        diffusion_prior = DiffusionPrior( 
-            net=prior_network,
-            clip=None,
-            image_embed_dim=cfg["diffusion_prior_embed_dim"], 
-            timesteps=cfg["diffusion_prior_timesteps"],
-            cond_drop_prob=cfg["diffusion_prior_cond_drop_prob"], 
-            loss_type=cfg["diffusion_prior_loss_type"], 
-            condition_on_text_encodings=cfg["diffusion_prior_condition_on_text_encodings"]
-        ).to(device)
-
-        diffusion_prior.load_state_dict(state_dict, strict=True)
-
-        text_cond = dict(text_embed = texts_embeds)
-        prior_embeds = diffusion_prior.p_sample_loop((1, 512), text_cond = text_cond)
-
-        prior_embeds = prior_embeds.detach().clone().to(device)
-
-        del prior_network, diffusion_prior, state_dict
-        torch.cuda.empty_cache()
+    stable_cache = {}
+    def text_encode(text):
+        nonlocal stable_cache
+        with torch.inference_mode(), torch.autocast(device):
+            if text in stable_cache:
+                text_embeddings = stable_cache[text]
+            else:
+                toks = stable_pipe.tokenizer([" ", text], padding=True)
+                text_embeddings = stable_pipe.text_encoder(
+                    torch.LongTensor(toks.input_ids).to(device),
+                    attention_mask=torch.tensor(toks.attention_mask).to(device))[0]
+                stable_cache[text] = text_embeddings
+        return text_embeddings
 
     # Load all meshes and setup training parameters
     meshes = [] # store Mesh objects
@@ -441,11 +424,12 @@ def loop(cfg):
             ).permute(0, 3, 1, 2) # switch to B, C, H, W
             
         # resize to CLIP input size: cubic, linear, lanczos2, lanczos3
+        resize_size = (512, 512)
         if cfg["resize_method"] == "cubic":
 
             train_render = resize(
                 train_render,
-                out_shape=(224, 224), # resize to clip
+                out_shape=resize_size, # resize to clip
                 interp_method=cubic
             )
 
@@ -453,7 +437,7 @@ def loop(cfg):
 
             train_render = resize(
                 train_render,
-                out_shape=(224, 224), # resize to clip
+                out_shape=resize_size, # resize to clip
                 interp_method=linear
             )
 
@@ -461,14 +445,14 @@ def loop(cfg):
 
             train_render = resize(
                 train_render,
-                out_shape=(224, 224), # resize to clip
+                out_shape=resize_size, # resize to clip
                 interp_method=lanczos2
             )
         elif cfg["resize_method"] == "lanczos3":
 
             train_render = resize(
                 train_render,
-                out_shape=(224, 224), # resize to clip
+                out_shape=resize_size, # resize to clip
                 interp_method=lanczos3
             )
 
@@ -492,17 +476,29 @@ def loop(cfg):
             im.save(os.path.join(cfg["path"], 'epoch_%d.png' % it))
 
         # Convert image to image embeddings
-        image_embeds = model.encode_image(
-            (train_render - clip_mean[None, :, None, None]) / clip_std[None, :, None, None]
-        )
-        image_embeds = image_embeds / image_embeds.norm(dim=1, keepdim=True)
+        with torch.autocast(device):
+            img_cut = (train_render - clip_mean[None, :, None, None]) / clip_std[None, :, None, None]
+            encoded = stable_pipe.vae.encode(img_cut.half()).latent_dist.sample() * 0.18215
 
         # Get loss between text embeds and image embeds
-        clip_loss  = cosine_avg(image_embeds, texts_embeds)
-
-        # Get loss between image prior embedding and image embeds
-        if cfg["prior_path"] is not None:
-            prior_loss = cosine_avg(image_embeds, prior_embeds)
+        with torch.inference_mode(), torch.autocast(device):
+            text_embeddings = text_encode(["", cfg["text_prompt"]])  # TODO
+            noise = torch.randn_like(encoded)
+            ts = stable_pipe.scheduler.timesteps
+            t = torch.randint(2, len(ts) - 1, (len(img_cut),)).long()
+            t = ts[t]
+            noised = stable_pipe.scheduler.add_noise(encoded, noise, t)
+            pred_noise = stable_pipe.unet(noised.repeat(2, 1, 1, 1).half().to(device),
+                                          t.repeat(2).to(device),
+                                          text_embeddings.repeat_interleave(noised.shape[0], dim=0)).sample
+            noise_pred_uncond, noise_pred_text = pred_noise.chunk(2)
+            noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+        loss = (encoded.flatten() * (noise_pred - noise).flatten().clone()).mean()
+        alpha_bar = stable_pipe.scheduler.alphas_cumprod[t]
+        beta = torch.sqrt(1 - alpha_bar)
+        weights = beta.pow(2)
+        # weigths = weights * 0 + 1  # TODO
+        loss = (loss * weights.to(device)).mean()
 
         # Evaluate laplacian for each mesh in scene to be deformed
         lapls = []
@@ -523,9 +519,9 @@ def loop(cfg):
 
         # Get total loss and backprop
         if cfg["prior_path"] is not None:
-            total_loss = (cfg["clip_weight"] * clip_loss) + (cfg["diff_loss_weight"] * prior_loss) + lapls_l
+            total_loss = (cfg["clip_weight"] * loss) + lapls_l
         else:
-            total_loss = (cfg["clip_weight"] * clip_loss) + lapls_l
+            total_loss = (cfg["clip_weight"] * loss) + lapls_l
 
         optimizer.zero_grad()
         total_loss.backward()
