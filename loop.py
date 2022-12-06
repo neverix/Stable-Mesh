@@ -483,7 +483,7 @@ def loop(cfg):
 
         # Get loss between text embeds and image embeds
         with torch.inference_mode(), torch.autocast(autocast_device):
-            text_embeddings = text_encode(["", cfg["text_prompt"]])  # TODO
+            text_embeddings = torch.cat([text_encode(s) for s in ["", cfg["text_prompt"]]])  # TODO
             noise = torch.randn_like(encoded)
             ts = stable_pipe.scheduler.timesteps
             t = torch.randint(2, len(ts) - 1, (len(img_cut),)).long()
