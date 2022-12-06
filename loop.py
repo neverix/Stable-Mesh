@@ -81,7 +81,7 @@ def loop(cfg):
             if text in stable_cache:
                 text_embeddings = stable_cache[text]
             else:
-                toks = stable_pipe.tokenizer([" ", text], padding=True)
+                toks = stable_pipe.tokenizer([" ", text], padding="max_length", max_length=77, truncation=True)
                 text_embeddings = stable_pipe.text_encoder(
                     torch.LongTensor(toks.input_ids).to(device),
                     attention_mask=torch.tensor(toks.attention_mask).to(device))[0]
