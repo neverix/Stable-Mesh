@@ -14,7 +14,7 @@ import matplotlib.pyplot    as plt
 
 from tqdm                   import tqdm
 from datetime               import datetime
-from dalle2_pytorch         import DiffusionPrior, DiffusionPriorNetwork
+from diffusers import StableDiffusionPipeline
 
 from PIL                    import Image
 from utils.video            import Video
