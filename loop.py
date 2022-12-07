@@ -2,7 +2,7 @@
 # and performs optimization as highlighted in paper
 
 import os
-import clip
+# import clip
 import yaml
 import torch
 import kornia
@@ -489,8 +489,8 @@ def loop(cfg):
             t = torch.randint(2, len(ts) - 1, (len(img_cut),)).long()
             t = ts[t]
             noised = stable_pipe.scheduler.add_noise(encoded, noise, t)
-            pred_noise = stable_pipe.unet(noised.repeat_interleave(2, 1, 1, 1).half().to(device),
-                                          t.repeat_interleave(2).to(device),
+            pred_noise = stable_pipe.unet(noised.repeat_interleave(2, dim=0).half().to(device),
+                                          t.repeat_interleave(2, dim=0).to(device),
                                           text_embeddings  # .repeat_interleave(noised.shape[0], dim=0)
                                          ).sample
             noise_pred_uncond, noise_pred_text = pred_noise.chunk(2)
@@ -534,7 +534,7 @@ def loop(cfg):
         specular_map.clamp_(min=0, max=1)
         texture_map.clamp_(min=0, max=1)
 
-        t_loop.set_description("CLIP Loss = %.6f" % clip_loss.item() )
+        t_loop.set_description("Loss = %.6f" % loss.item() )
     
     video.close()
 
