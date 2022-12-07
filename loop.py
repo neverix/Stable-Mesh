@@ -367,7 +367,7 @@ def loop(cfg):
                 'resolution': [cfg["train_res"], cfg["train_res"]]
             }
 
-            try:
+            if with_tex >= 1:
                 with_tex_train_render = render.render_mesh(
                     glctx,
                     complete_scene.eval(with_tex_params),
@@ -381,10 +381,10 @@ def loop(cfg):
                     msaa=False,
                     background=params_camera["bkgs"][:with_tex],
                 ).permute(0, 3, 1, 2) # switch to B, C, H, W
-            except RuntimeError:
+            else:
                 with_tex_train_render = None
 
-            try:
+            if with_tex <= cfg["batch_size"] - 1:
                 no_tex_train_render = render.render_mesh(
                     glctx,
                     complete_scene_notex.eval(no_tex_params),
@@ -398,12 +398,12 @@ def loop(cfg):
                     msaa=False,
                     background=params_camera["bkgs"][with_tex:],
                 ).permute(0, 3, 1, 2) # switch to B, C, H, W
-            except RuntimeError:
+            else:
                 no_tex_train_render = None
 
-            train_render = torch.cat(([with_tex_train_render] if with_tex_train_render is not None else []),
+            train_render = torch.cat(([with_tex_train_render] if with_tex_train_render is not None else []) +
                 ([no_tex_train_render] if no_tex_train_render is not None else [])
-            ])
+            )
             
         # Render with only textured meshes
         else:
