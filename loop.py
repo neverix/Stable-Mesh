@@ -494,7 +494,7 @@ def loop(cfg):
                                           text_embeddings  # .repeat_interleave(noised.shape[0], dim=0)
                                          ).sample
             noise_pred_uncond, noise_pred_text = pred_noise.chunk(2)
-            noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+            noise_pred = noise_pred_uncond + cfg["guidance_scale"] * (noise_pred_text - noise_pred_uncond)
         loss = (encoded.flatten() * (noise_pred - noise).flatten().clone()).mean()
         alpha_bar = stable_pipe.scheduler.alphas_cumprod[t]
         beta = torch.sqrt(1 - alpha_bar)
