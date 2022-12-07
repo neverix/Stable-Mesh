@@ -527,8 +527,9 @@ def loop(cfg):
 
         optimizer.zero_grad()
         total_loss.backward()
-        optimizer.step()
-        scheduler.step()
+        if it % cfg["grad_acc"] == cfg["grad_acc"] - 1:
+            optimizer.step()
+            scheduler.step()
 
         normal_map.clamp_(min=-1, max=1)
         specular_map.clamp_(min=0, max=1)
