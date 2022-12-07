@@ -525,10 +525,7 @@ def loop(cfg):
             lapls_l += (laplacian_weight * lap_l)
 
         # Get total loss and backprop
-        if cfg["prior_path"] is not None:
-            total_loss = (cfg["clip_weight"] * loss) + lapls_l
-        else:
-            total_loss = (cfg["clip_weight"] * loss) + lapls_l
+        total_loss = (cfg["clip_weight"] * loss) + lapls_l
 
         optimizer.zero_grad()
         total_loss.backward()
