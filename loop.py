@@ -350,8 +350,7 @@ def loop(cfg):
 
         # Render with and without texture to enable shape growth
         if it < cfg["epochs"] * cfg["shape_imgs_frac"] and vert_train:
-            
-            with_tex = cfg["batch_size"] // 2
+            with_tex = random.randint(0, cfg["batch_size"])
 
             with_tex_params = {
                 'mvp': params_camera['mvp'][:with_tex],
@@ -367,37 +366,42 @@ def loop(cfg):
                 'resolution': [cfg["train_res"], cfg["train_res"]]
             }
 
-            with_tex_train_render = render.render_mesh(
-                glctx,
-                complete_scene.eval(with_tex_params),
-                with_tex_params["mvp"],
-                with_tex_params["campos"],
-                with_tex_params["lightpos"],
-                cfg["light_power"],
-                cfg["train_res"],
-                spp=1, # no upscale here / render at any resolution then use resize_right to downscale
-                num_layers=cfg["layers"],
-                msaa=False,
-                background=params_camera["bkgs"][:with_tex],
-            ).permute(0, 3, 1, 2) # switch to B, C, H, W
+            try:
+                with_tex_train_render = render.render_mesh(
+                    glctx,
+                    complete_scene.eval(with_tex_params),
+                    with_tex_params["mvp"],
+                    with_tex_params["campos"],
+                    with_tex_params["lightpos"],
+                    cfg["light_power"],
+                    cfg["train_res"],
+                    spp=1, # no upscale here / render at any resolution then use resize_right to downscale
+                    num_layers=cfg["layers"],
+                    msaa=False,
+                    background=params_camera["bkgs"][:with_tex],
+                ).permute(0, 3, 1, 2) # switch to B, C, H, W
+            except RuntimeError:
+                with_tex_train_render = None
 
-            no_tex_train_render = render.render_mesh(
-                glctx,
-                complete_scene_notex.eval(no_tex_params),
-                no_tex_params["mvp"],
-                no_tex_params["campos"],
-                no_tex_params["lightpos"],
-                cfg["light_power"],
-                cfg["train_res"],
-                spp=1, # no upscale here / render at any resolution then use resize_right to downscale
-                num_layers=1,
-                msaa=False,
-                background=params_camera["bkgs"][with_tex:],
-            ).permute(0, 3, 1, 2) # switch to B, C, H, W
+            try:
+                no_tex_train_render = render.render_mesh(
+                    glctx,
+                    complete_scene_notex.eval(no_tex_params),
+                    no_tex_params["mvp"],
+                    no_tex_params["campos"],
+                    no_tex_params["lightpos"],
+                    cfg["light_power"],
+                    cfg["train_res"],
+                    spp=1, # no upscale here / render at any resolution then use resize_right to downscale
+                    num_layers=1,
+                    msaa=False,
+                    background=params_camera["bkgs"][with_tex:],
+                ).permute(0, 3, 1, 2) # switch to B, C, H, W
+            except RuntimeError:
+                no_tex_train_render = None
 
-            train_render = torch.cat([
-                with_tex_train_render,
-                no_tex_train_render
+            train_render = torch.cat(([with_tex_train_render] if with_tex_train_render is not None else []),
+                ([no_tex_train_render] if no_tex_train_render is not None else [])
             ])
             
         # Render with only textured meshes
