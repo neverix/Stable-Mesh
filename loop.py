@@ -2,10 +2,11 @@
 # and performs optimization as highlighted in paper
 
 import os
-# import clip
+import clip
 import yaml
 import torch
 import kornia
+import random
 import torchvision
 
 import numpy                as np
@@ -14,7 +15,7 @@ import matplotlib.pyplot    as plt
 
 from tqdm                   import tqdm
 from datetime               import datetime
-from diffusers import StableDiffusionPipeline
+from diffusers              import StableDiffusionPipeline
 
 from PIL                    import Image
 from utils.video            import Video
